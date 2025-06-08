@@ -1,0 +1,1885 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Controle de Telemetria IoT</title>
+    <!-- Inclui a biblioteca MQTT.js para comunicação MQTT no navegador -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <!-- Inclui o CDN do Tailwind CSS para estilização -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inclui o CDN do Chart.js para gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Configuração da fonte Poppins do Google Fonts */
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+        /* Estilos globais e de reset */
+        html, body {
+            height: 100%;
+            width: 100%;
+            font-family: 'Poppins', sans-serif;
+            background-color: #e0e7ee; /* Um cinza-azulado mais suave */
+            color: #2d3748;
+            overflow-x: hidden; /* Esconde overflow horizontal */
+            /* Removido overflow-y aqui, o app-container vai gerenciar */
+        }
+
+        /* Estilos personalizados para o scrollbar (não cobertos pelo Tailwind) */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #d8e2ed; /* Cor da trilha mais clara */
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #9abed6; /* Cor do polegar mais visível */
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6e94b2; /* Cor do polegar ao passar o mouse */
+        }
+
+        /* Keyframes para a animação de fade-in e escala das cards (efeito de entrada) */
+        @keyframes fadeInScale {
+            0% {
+                opacity: 0;
+                transform: translateY(20px) scale(0.95);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        /* Keyframes para a animação de pulsação do indicador de conexão */
+        @keyframes pulse-indicator {
+            0% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7);
+            }
+            70% {
+                transform: scale(1.1);
+                box-shadow: 0 0 0 10px rgba(76, 175, 80, 0);
+            }
+            100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(76, 175, 80, 0);
+            }
+        }
+
+        /* Keyframes para a animação de piscar vermelho claro no VALOR */
+        @keyframes flash-red-value {
+            0%, 100% {
+                color: #2b6cb0; /* Cor original do texto (azul) */
+            }
+            50% {
+                color: #ef4444; /* Vermelho forte para o texto */
+            }
+        }
+
+        /* Estilos para as cards de dados e cards de gráfico com animação de entrada */
+        .data-card, .chart-card {
+            animation: fadeInScale 0.5s ease-out forwards;
+            opacity: 0; /* Começa invisível para a animação */
+            border-radius: 1.5rem; /* Mais arredondado para estilo Android */
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1); /* Sombra mais suave */
+            transition: all 0.3s ease-in-out;
+        }
+        /* Adiciona cursor de ponteiro apenas para data-card */
+        .data-card {
+            cursor: pointer;
+        }
+        /* Adiciona cursor de ponteiro para chart-card para indicar clicável */
+        .chart-card {
+            cursor: pointer;
+        }
+
+        /* Classe para o alerta de piscar vermelho no valor */
+        .value-flash-red-alert {
+            animation: flash-red-value 1s infinite alternate; /* Aplica a animação no valor */
+        }
+
+        /* Atraso para cada card para uma animação escalonada ao carregar (ajustado para mais cards) */
+        .data-card:nth-child(1), .chart-card:nth-child(1) { animation-delay: 0.1s; }
+        .data-card:nth-child(2), .chart-card:nth-child(2) { animation-delay: 0.2s; }
+        .data-card:nth-child(3), .chart-card:nth-child(3) { animation-delay: 0.3s; }
+        .data-card:nth-child(4), .chart-card:nth-child(4) { animation-delay: 0.4s; }
+        .data-card:nth-child(5), .chart-card:nth-child(5) { animation-delay: 0.5s; }
+        .data-card:nth-child(6), .chart-card:nth-child(6) { animation-delay: 0.6s; }
+        .data-card:nth-child(7), .chart-card:nth-child(7) { animation-delay: 0.7s; }
+        .data-card:nth-child(8), .chart-card:nth-child(8) { animation-delay: 0.8s; }
+        .data-card:nth-child(9), .chart-card:nth-child(9) { animation-delay: 0.9s; }
+        .data-card:nth-child(10), .chart-card:nth-child(10) { animation-delay: 1.0s; }
+        .data-card:nth-child(11), .chart-card:nth-child(11) { animation-delay: 1.1s; }
+        .data-card:nth-child(12), .chart-card:nth-child(12) { animation-delay: 1.2s; }
+
+        /* Estilo específico para o canvas do gráfico dentro do card */
+        .chart-container {
+            width: 100%;
+            height: 100%; /* Permite que o gráfico preencha o card */
+            min-height: 100px; /* Garante uma altura mínima para o gráfico */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Estilo para os ícones dentro dos labels */
+        .card-label-icon {
+            font-size: 1.5rem; /* Ajuste o tamanho do ícone */
+            margin-right: 0.5rem; /* Espaçamento entre o ícone e o texto */
+            vertical-align: middle; /* Alinha o ícone verticalmente */
+        }
+
+        /* Estilo para o modal de explicação e gráfico */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7); /* Fundo semi-transparente mais escuro */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000; /* Garante que o modal esteja acima de tudo */
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 1.5rem; /* Bordas super-arredondadas */
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            max-width: 90%;
+            width: 500px;
+            transform: translateY(20px);
+            transition: transform 0.3s ease-in-out;
+            position: relative; /* Para posicionar o botão de fechar */
+        }
+
+        .modal-overlay.active .modal-content {
+            transform: translateY(0);
+        }
+
+        .modal-close-button {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: none;
+            border: none;
+            font-size: 1.8rem;
+            color: #4a5568; /* Cor do texto cinza */
+            cursor: pointer;
+            transition: color 0.2s ease-in-out;
+        }
+
+        .modal-close-button:hover {
+            color: #ef4444; /* Vermelho ao passar o mouse */
+        }
+
+        .modal-title {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #2b6cb0; /* Azul do cabeçalho */
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .modal-description {
+            font-size: 1.1rem;
+            color: #4a5568;
+            line-height: 1.6;
+            text-align: justify;
+        }
+
+        /* Estilo para o indicador de conexão MQTT */
+        #mqtt-status-indicator {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            background-color: #ccc; /* Cor padrão (desconhecido/inicial) */
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            z-index: 999;
+            transition: background-color 0.3s ease-in-out;
+        }
+
+        #mqtt-status-indicator.connected {
+            background-color: #4CAF50; /* Verde */
+            animation: pulse-indicator 2s infinite cubic-bezier(0.66, 0, 0, 1);
+        }
+
+        #mqtt-status-indicator.disconnected {
+            background-color: #F44336; /* Vermelho */
+        }
+
+        #mqtt-status-indicator.reconnecting {
+            background-color: #FFC107; /* Amarelo */
+        }
+
+        #mqtt-status-indicator.error {
+            background-color: #D32F2F; /* Vermelho mais escuro para erro */
+        }
+
+        /* Estilos para as abas de navegação */
+        .tab-buttons-container {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+            border-bottom: 2px solid #cbd5e0; /* Linha sutil abaixo das abas */
+            padding-bottom: 0.5rem;
+            width: 100%;
+        }
+
+        .tab-button {
+            padding: 0.75rem 1.5rem;
+            font-weight: 600;
+            color: #64748b; /* Cinza suave */
+            background-color: transparent;
+            border: none;
+            border-bottom: 3px solid transparent; /* Borda inferior para indicar ativação */
+            cursor: pointer;
+            transition: all 0.3s ease-in-out;
+            flex: 1; /* Faz os botões dividirem o espaço igualmente */
+            max-width: 200px; /* Limita a largura dos botões em telas maiores */
+            text-align: center;
+            font-size: 0.95rem; /* Ajuste para caber melhor em mobile */
+        }
+
+        .tab-button:hover {
+            color: #2b6cb0; /* Azul do cabeçalho no hover */
+            background-color: #f0f4f8; /* Fundo suave no hover */
+            border-radius: 0.5rem 0.5rem 0 0; /* Cantos arredondados no topo */
+        }
+
+        .tab-button.active {
+            color: #2b6cb0; /* Azul mais escuro quando ativo */
+            border-bottom-color: #2b6cb0; /* Borda inferior ativa */
+            background-color: white; /* Fundo branco para a aba ativa */
+            border-radius: 0.5rem 0.5rem 0 0;
+            box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1); /* Sombra suave para a aba ativa */
+        }
+
+        /* Estilos para a página de setpoints e análise preditiva quando incorporada */
+        #setpoints-view, #predictive-analysis-view {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start; /* Alinha ao topo para não ficar muito centralizado se o conteúdo for longo */
+            padding: 1rem; /* Adiciona padding ao container da view */
+            box-sizing: border-box;
+            background-color: #e0e7ee; /* Mesma cor de fundo do body */
+        }
+        /* Importante: Força o display none quando a classe hidden está presente */
+        #setpoints-view.hidden, #predictive-analysis-view.hidden {
+            display: none !important;
+        }
+
+        .setpoints-container, .predictive-container {
+            max-width: 600px;
+            width: 100%;
+            background-color: white; /* Fundo branco para o formulário */
+            padding: 1.5rem; /* Reduz padding para mobile */
+            border-radius: 1.5rem; /* Mais arredondado */
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            border-top: 4px solid #3b82f6; /* Borda azul para combinar */
+        }
+
+        #setpoints-view .input-group {
+            display: flex;
+            flex-direction: column; /* Empilha os itens verticalmente por padrão em mobile */
+            align-items: flex-start; /* Alinha os itens à esquerda */
+            margin-bottom: 1rem; /* Espaçamento menor entre grupos em mobile */
+            padding: 0.5rem 0; /* Reduz padding vertical */
+            width: 100%; /* Ocupa a largura total */
+        }
+
+        #setpoints-view .input-group label {
+            font-weight: 600;
+            margin-bottom: 0.5rem; /* Espaço entre label e o próximo item */
+            color: #4a5568;
+            width: 100%; /* Ocupa a largura total */
+            text-align: left;
+        }
+
+        #setpoints-view .input-group input[type="number"] {
+            width: 100%; /* Input numérico ocupa a largura total */
+            padding: 0.75rem;
+            border: 2px solid #cbd5e0;
+            border-radius: 0.75rem; /* Mais arredondado */
+            font-size: 1rem;
+            text-align: left; /* Alinha o texto do input à esquerda */
+            transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            height: 48px; /* Altura padrão para campos de toque em Android */
+            box-sizing: border-box; /* Garante que padding não aumente o width */
+        }
+
+        #setpoints-view .input-group input[type="number"]:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3); /* Sombra azul ao focar */
+        }
+
+        /* Estilo base para o input range */
+        #setpoints-view .input-group input[type="range"] {
+            -webkit-appearance: none; /* Remove o estilo padrão do navegador */
+            appearance: none;
+            width: 100%; /* Slider ocupa a largura total */
+            height: 8px; /* Altura do slider */
+            background: transparent; /* Torna o background transparente para o trilho customizado */
+            border-radius: 5px; /* Bordas arredondadas do trilho */
+            outline: none; /* Remove outline ao focar */
+            margin: 0.5rem 0; /* Espaçamento vertical */
+        }
+
+        /* Mídia query para telas maiores (desktop/tablet) */
+        @media (min-width: 768px) {
+            #setpoints-view .input-group {
+                flex-direction: row; /* Volta para layout de linha em telas maiores */
+                align-items: center;
+                margin-bottom: 1.5rem;
+                padding: 0.75rem 0;
+            }
+            #setpoints-view .input-group label {
+                flex-basis: 120px; /* Largura fixa para os labels */
+                margin-right: 1.5rem;
+                margin-bottom: 0;
+            }
+            #setpoints-view .input-group input[type="number"] {
+                width: 90px; /* Retorna à largura menor em desktop */
+                text-align: center;
+            }
+            #setpoints-view .input-group input[type="range"] {
+                flex-grow: 1; /* Faz o slider ocupar o espaço restante */
+                margin: 0 1rem; /* Espaçamento horizontal */
+            }
+        }
+
+
+        /* Estilo do trilho (track) do slider para WebKit (Chrome, Safari) */
+        #setpoints-view .input-group input[type="range"]::-webkit-slider-runnable-track {
+            height: 8px;
+            background: linear-gradient(to right, #3b82f6 var(--track-fill, 0%), #cbd5e0 var(--track-fill, 0%));
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        /* Estilo do trilho (track) do slider para Firefox */
+        #setpoints-view .input-group input[type="range"]::-moz-range-track {
+            height: 8px;
+            background: linear-gradient(to right, #3b82f6 var(--track-fill, 0%), #cbd5e0 var(--track-fill, 0%));
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        /* Estilo do polegar (thumb) do slider para WebKit */
+        #setpoints-view .input-group input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 24px; /* Polegar um pouco maior para toque */
+            height: 24px; /* Polegar um pouco maior para toque */
+            border-radius: 50%; /* Faz o polegar ser circular */
+            background: #3b82f6; /* Cor azul do polegar */
+            cursor: grab;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            margin-top: -8px; /* Ajusta a posição vertical do polegar */
+        }
+
+        /* Estilo do polegar (thumb) do slider para Firefox */
+        #setpoints-view .input-group input[type="range"]::-moz-range-thumb {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: grab;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+
+        /* Efeito de arrastar para o polegar do slider */
+        #setpoints-view .input-group input[type="range"]::-webkit-slider-thumb:active,
+        #setpoints-view .input-group input[type="range"]::-moz-range-thumb:active {
+            cursor: grabbing;
+            background-color: #2563eb; /* Azul mais escuro ao arrastar */
+        }
+
+        #setpoints-view .save-button {
+            background-color: #22c55e; /* Verde vibrante */
+            color: white;
+            font-weight: 700;
+            padding: 1rem 2rem;
+            border-radius: 1rem;
+            transition: background-color 0.2s ease-in-out, transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+            box-shadow: 0 4px 10px rgba(34, 197, 94, 0.3);
+            cursor: pointer;
+            width: 100%; /* Ocupa a largura total em mobile */
+            max-width: 300px; /* Limita a largura em telas maiores */
+        }
+
+        #setpoints-view .save-button:hover {
+            background-color: #16a34a; /* Verde mais escuro no hover */
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(34, 197, 94, 0.4);
+        }
+
+        /* Estilo para a mensagem de status (toast) */
+        .toast-message {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background-color: #4CAF50; /* Verde */
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            z-index: 1001;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out, transform 0.3s ease-in-out;
+            transform: translateY(-20px);
+        }
+
+        .toast-message.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        /* Estilos para o Modal de Gráfico Expandido */
+        #chart-expansion-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8); /* Fundo mais escuro para destaque */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1100; /* Acima do modal de explicação */
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+        }
+
+        #chart-expansion-modal.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        #chart-expansion-content {
+            background-color: white;
+            padding: 1.5rem; /* Padding reduzido para mobile */
+            border-radius: 1.5rem;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+            max-width: 95%; /* Maior para gráficos */
+            max-height: 95%;
+            width: 800px; /* Largura padrão maior */
+            height: 500px; /* Altura padrão maior */
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            transform: scale(0.9);
+            transition: transform 0.3s ease-in-out;
+        }
+
+        #chart-expansion-modal.active #chart-expansion-content {
+            transform: scale(1);
+        }
+
+        #expanded-chart-title {
+            font-size: 1.5rem; /* Fonte menor para título do modal */
+            font-weight: 600;
+            color: #2b6cb0;
+            margin-bottom: 0.8rem; /* Margem menor */
+            text-align: center;
+        }
+
+        #expanded-chart-container {
+            flex-grow: 1;
+            width: 100%;
+            height: calc(100% - 3.5rem);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #expanded-chart-canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        /* Estilos para o Modal de Gráfico Senoidal */
+        #sinusoidal-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8); /* Fundo mais escuro para destaque */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1200; /* Acima de outros modais */
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+        }
+
+        #sinusoidal-modal.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        #sinusoidal-content {
+            background-color: white;
+            padding: 1.5rem;
+            border-radius: 1.5rem;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+            max-width: 95%;
+            max-height: 95%;
+            width: 800px;
+            height: 500px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            transform: scale(0.9);
+            transition: transform 0.3s ease-in-out;
+        }
+
+        #sinusoidal-modal.active #sinusoidal-content {
+            transform: scale(1);
+        }
+
+        #sinusoidal-chart-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #2b6cb0;
+            margin-bottom: 0.8rem;
+            text-align: center;
+        }
+
+        #sinusoidal-chart-container {
+            flex-grow: 1;
+            width: 100%;
+            height: calc(100% - 3.5rem);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #sinusoidal-chart-canvas {
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        /* Style for clickable metrics title */
+        #metrics-title {
+            cursor: pointer;
+            transition: color 0.2s ease-in-out;
+        }
+        #metrics-title:hover {
+            color: #3b82f6; /* Lighter blue on hover */
+        }
+    </style>
+</head>
+<body class="h-full w-full font-poppins bg-gray-50 text-gray-800">
+    <!-- Contêiner principal da aplicação, usando flexbox para layout de coluna -->
+    <div class="app-container flex flex-col h-screen w-screen p-0">
+        <!-- Cabeçalho da aplicação com gradiente e sombra proeminente -->
+        <header class="header p-5 bg-gradient-to-r from-blue-600 to-blue-800 text-white text-center
+                       shadow-xl rounded-b-2xl flex items-center justify-center relative">
+            <!-- Título principal com fonte maior e mais impacto -->
+            <h1 class="text-2xl sm:text-3xl lg:text-4xl font-extrabold m-0 tracking-tight">Painel de Telemetria IoT</h1>
+        </header>
+
+        <!-- Main content area -->
+        <main class="main-content flex-1 overflow-y-auto p-4 sm:p-6 w-full max-w-7xl mx-auto">
+            <!-- Abas de navegação -->
+            <div class="tab-buttons-container">
+                <button id="showDashboardBtn" class="tab-button active">Painel de Medições</button>
+                <button id="showSetpointsBtn" class="tab-button">Configurar Setpoints</button>
+                <button id="showPredictiveAnalysisBtn" class="tab-button">Análise Preditiva</button>
+            </div>
+
+            <!-- View do Dashboard Principal -->
+            <div id="dashboard-view">
+                <!-- Título da seção de dados dos sensores, centralizado em telas menores -->
+                <h2 id="metrics-title" class="section-title my-5 text-xl sm:text-2xl font-semibold pb-3 border-b-2 border-gray-300 text-center sm:text-left">
+                    <span class="inline-block align-middle mr-2 text-2xl">📈</span> Métricas em Tempo Real
+                </h2>
+
+                <!-- Grade de exibição dos dados dos sensores com espaçamento otimizado -->
+                <div class="dashboard-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-5 p-1">
+                    <!-- Card de Tensão (Valor Atual) -->
+                    <div class="data-card bg-white p-6 shadow-md flex flex-col items-center justify-center min-h-[160px]
+                                border-t-4 border-blue-500 hover:scale-[1.01] hover:shadow-lg"
+                                data-title="Tensão Elétrica"
+                                data-description="A tensão elétrica, medida em Volts (V), é a força que impulsiona os elétrons através de um circuito. É o potencial elétrico que permite o fluxo de corrente.">
+                        <span class="card-label text-base sm:text-lg text-gray-700 mb-3 font-medium text-center">
+                            <span class="card-label-icon">⚡</span> Tensão Atual
+                        </span>
+                        <div>
+                            <span id="display-voltage" class="card-value text-4xl sm:text-5xl font-extrabold text-blue-700 text-center leading-none">--</span>
+                            <span class="card-unit text-lg sm:text-xl text-gray-600 ml-1 mt-1">V</span>
+                        </div>
+                    </div>
+
+                    <!-- Card de Corrente (Valor Atual) -->
+                    <div class="data-card bg-white p-6 shadow-md flex flex-col items-center justify-center min-h-[160px]
+                                border-t-4 border-blue-500 hover:scale-[1.01] hover:shadow-lg"
+                                data-title="Corrente Elétrica"
+                                data-description="A corrente elétrica, medida em Ampères (A), é o fluxo de elétrons através de um condutor. Indica a quantidade de carga elétrica que passa por um ponto em um determinado tempo.">
+                        <span class="card-label text-base sm:text-lg text-gray-700 mb-3 font-medium text-center">
+                            <span class="card-label-icon">🔌</span> Corrente Atual
+                        </span>
+                        <div>
+                            <span id="display-current" class="card-value text-4xl sm:text-5xl font-extrabold text-blue-700 text-center leading-none">--</span>
+                            <span class="card-unit text-lg sm:text-xl text-gray-600 ml-1 mt-1">A</span>
+                        </div>
+                    </div>
+
+                    <!-- Card de Potência (Valor Atual) -->
+                    <div class="data-card bg-white p-6 shadow-md flex flex-col items-center justify-center min-h-[160px]
+                                border-t-4 border-blue-500 hover:scale-[1.01] hover:shadow-lg"
+                                data-title="Potência Elétrica"
+                                data-description="A potência elétrica, medida em Watts (W), é a taxa na qual a energia elétrica é consumida ou produzida. Representa o quão rápido o trabalho está sendo realizado.">
+                        <span class="card-label text-base sm:text-lg text-gray-700 mb-3 font-medium text-center">
+                            <span class="card-label-icon">💡</span> Potência Atual
+                        </span>
+                        <div>
+                            <span id="display-power" class="card-value text-4xl sm:text-5xl font-extrabold text-blue-700 text-center leading-none">--</span>
+                            <span class="card-unit text-lg sm:text-xl text-gray-600 ml-1 mt-1">W</span>
+                        </div>
+                    </div>
+
+                    <!-- Card de Energia (Valor Atual) -->
+                    <div class="data-card bg-white p-6 shadow-md flex flex-col items-center justify-center min-h-[160px]
+                                border-t-4 border-blue-500 hover:scale-[1.01] hover:shadow-lg"
+                                data-title="Energia Elétrica"
+                                data-description="A energia elétrica, medida em Quilowatts-hora (kWh), é a quantidade total de eletricidade consumida ao longo de um período de tempo. É o que as concessionárias cobram.">
+                        <span class="card-label text-base sm:text-lg text-gray-700 mb-3 font-medium text-center">
+                            <span class="card-label-icon">🔋</span> Energia Acumulada
+                        </span>
+                        <div>
+                            <span id="display-energy" class="card-value text-4xl sm:text-5xl font-extrabold text-blue-700 text-center leading-none">--</span>
+                            <span class="card-unit text-lg sm:text-xl text-gray-600 ml-1 mt-1">kWh</span>
+                        </div>
+                    </div>
+
+                    <!-- Card de Frequência (Valor Atual) -->
+                    <div class="data-card bg-white p-6 shadow-md flex flex-col items-center justify-center min-h-[160px]
+                                border-t-4 border-blue-500 hover:scale-[1.01] hover:shadow-lg"
+                                data-title="Frequência Elétrica"
+                                data-description="A frequência elétrica, medida em Hertz (Hz), é o número de ciclos completos que uma corrente alternada (AC) realiza por segundo. É um parâmetro importante para a estabilidade da rede.">
+                        <span class="card-label text-base sm:text-lg text-gray-700 mb-3 font-medium text-center">
+                            <span class="card-label-icon">〰️</span> Frequência Atual
+                        </span>
+                        <div>
+                            <span id="display-frequency" class="card-value text-4xl sm:text-5xl font-extrabold text-blue-700 text-center leading-none">--</span>
+                            <span class="card-unit text-lg sm:text-xl text-gray-600 ml-1 mt-1">Hz</span>
+                        </div>
+                    </div>
+
+                    <!-- Card de Fator de Potência (Valor Atual) -->
+                    <div class="data-card bg-white p-6 shadow-md flex flex-col items-center justify-center min-h-[160px]
+                                border-t-4 border-blue-500 hover:scale-[1.01] hover:shadow-lg"
+                                data-title="Fator de Potência"
+                                data-description="O fator de potência (FP) é uma medida da eficiência com que a energia elétrica está sendo utilizada. Um FP próximo de 1 (ou 100%) indica uso eficiente, enquanto valores menores indicam perdas.">
+                        <span class="card-label text-base sm:text-lg text-gray-700 mb-3 font-medium text-center">
+                            <span class="card-label-icon">⚖️</span> Fator de Potência
+                        </span>
+                        <div>
+                            <span id="display-pf" class="card-value text-4xl sm:text-5xl font-extrabold text-blue-700 text-center leading-none">--</span>
+                        </div>
+                    </div>
+
+                    <!-- Novos Cards para os Gráficos (Clicáveis para expansão) - Adicionado IDs para seleção mais fácil -->
+                    <div id="voltageChartCard" class="chart-card bg-white p-5 shadow-md flex flex-col items-center justify-center min-h-[220px]
+                                border-t-4 border-green-500 hover:scale-[1.01] hover:shadow-lg col-span-1 sm:col-span-2 lg:col-span-1 xl:col-span-1"
+                                data-chart-id="voltageChart"
+                                data-title="Histórico de Tensão">
+                        <span class="card-label text-base sm:text-lg text-gray-700 mb-3 font-medium text-center">
+                            <span class="card-label-icon">⚡</span> Histórico de Tensão (V)
+                        </span>
+                        <div class="chart-container">
+                            <canvas id="voltageChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div id="currentChartCard" class="chart-card bg-white p-5 shadow-md flex flex-col items-center justify-center min-h-[220px]
+                                border-t-4 border-green-500 hover:scale-[1.01] hover:shadow-lg col-span-1 sm:col-span-2 lg:col-span-1 xl:col-span-1"
+                                data-chart-id="currentChart"
+                                data-title="Histórico de Corrente">
+                        <span class="card-label text-base sm:text-lg text-gray-700 mb-3 font-medium text-center">
+                            <span class="card-label-icon">🔌</span> Histórico de Corrente (A)
+                        </span>
+                        <div class="chart-container">
+                            <canvas id="currentChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Card de Potência (Valor Atual) -->
+                    <div id="powerChartCard" class="chart-card bg-white p-5 shadow-md flex flex-col items-center justify-center min-h-[220px]
+                                border-t-4 border-green-500 hover:scale-[1.01] hover:shadow-lg col-span-1 sm:col-span-2 lg:col-span-1 xl:col-span-1"
+                                data-chart-id="powerChart"
+                                data-title="Histórico de Potência">
+                        <span class="card-label text-base sm:text-lg text-gray-700 mb-3 font-medium text-center">
+                            <span class="card-label-icon">💡</span> Histórico de Potência (W)
+                        </span>
+                        <div class="chart-container">
+                            <canvas id="powerChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div id="energyChartCard" class="chart-card bg-white p-5 shadow-md flex flex-col items-center justify-center min-h-[220px]
+                                border-t-4 border-green-500 hover:scale-[1.01] hover:shadow-lg col-span-1 sm:col-span-2 lg:col-span-1 xl:col-span-1"
+                                data-chart-id="energyChart"
+                                data-title="Histórico de Energia">
+                        <span class="card-label text-base sm:text-lg text-gray-700 mb-3 font-medium text-center">
+                            <span class="card-label-icon">🔋</span> Histórico de Energia (kWh)
+                        </span>
+                        <div class="chart-container">
+                            <canvas id="energyChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div id="frequencyChartCard" class="chart-card bg-white p-5 shadow-md flex flex-col items-center justify-center min-h-[220px]
+                                border-t-4 border-green-500 hover:scale-[1.01] hover:shadow-lg col-span-1 sm:col-span-2 lg:col-span-1 xl:col-span-1"
+                                data-chart-id="frequencyChart"
+                                data-title="Histórico de Frequência">
+                        <span class="card-label text-base sm:text-lg text-gray-700 mb-3 font-medium text-center">
+                            <span class="card-label-icon">〰️</span> Histórico de Frequência (Hz)
+                        </span>
+                        <div class="chart-container">
+                            <canvas id="frequencyChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div id="pfChartCard" class="chart-card bg-white p-5 shadow-md flex flex-col items-center justify-center min-h-[220px]
+                                border-t-4 border-green-500 hover:scale-[1.01] hover:shadow-lg col-span-1 sm:col-span-2 lg:col-span-1 xl:col-span-1"
+                                data-chart-id="pfChart"
+                                data-title="Histórico de Fator de Potência">
+                        <span class="card-label text-base sm:text-lg text-gray-700 mb-3 font-medium text-center">
+                            <span class="card-label-icon">⚖️</span> Histórico de Fator de Potência
+                        </span>
+                        <div class="chart-container">
+                            <canvas id="pfChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View de Configuração de Setpoints (Inicialmente oculta) -->
+            <div id="setpoints-view" class="hidden">
+                <div class="setpoints-container">
+                    <h1 class="text-2xl sm:text-3xl font-extrabold text-center text-blue-800 mb-6">Configurar Setpoints</h1>
+
+                    <div class="input-group">
+                        <label for="voltageSetpoint">Tensão (V):</label>
+                        <input type="range" id="voltageRange" min="0" max="300" step="0.1" value="0">
+                        <input type="number" id="voltageSetpoint" placeholder="Ex: 230" step="0.1">
+                    </div>
+                    <div class="input-group">
+                        <label for="currentSetpoint">Corrente (A):</label>
+                        <input type="range" id="currentRange" min="0" max="50" step="0.1" value="0">
+                        <input type="number" id="currentSetpoint" placeholder="Ex: 10" step="0.1">
+                    </div>
+                    <div class="input-group">
+                        <label for="powerSetpoint">Potência (W):</label>
+                        <input type="range" id="powerRange" min="0" max="5000" step="1" value="0">
+                        <input type="number" id="powerSetpoint" placeholder="Ex: 1500" step="1">
+                    </div>
+                    <div class="input-group">
+                        <label for="energySetpoint">Energia (kWh):</label>
+                        <input type="range" id="energyRange" min="0" max="1000" step="0.1" value="0">
+                        <input type="number" id="energySetpoint" placeholder="Ex: 50" step="0.1">
+                    </div>
+                    <div class="input-group">
+                        <label for="frequencySetpoint">Frequência (Hz):</label>
+                        <input type="range" id="frequencyRange" min="45" max="70" step="0.1" value="0">
+                        <input type="number" id="frequencySetpoint" placeholder="Ex: 60" step="0.1">
+                    </div>
+                    <div class="input-group">
+                        <label for="pfSetpoint">Fator de Potência:</label>
+                        <input type="range" id="pfRange" min="0" max="1" step="0.01" value="0">
+                        <input type="number" id="pfSetpoint" placeholder="Ex: 0.9" step="0.01">
+                    </div>
+
+                    <div class="flex justify-center mt-6">
+                        <button id="saveSetpoints" class="save-button">Salvar</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View de Análise Preditiva (Inicialmente oculta) -->
+            <div id="predictive-analysis-view" class="hidden">
+                <div class="predictive-container">
+                    <h1 class="text-2xl sm:text-3xl font-extrabold text-center text-blue-800 mb-6">Análise Preditiva</h1>
+                    <p class="text-gray-700 text-center mb-4">
+                        Esta seção exibe uma previsão simplificada da potência futura com base nos dados históricos.
+                        <br><i>Nota: Esta é uma simulação básica e não utiliza um modelo de Machine Learning completo.</i>
+                    </p>
+                    <div class="chart-container" style="height: 300px;">
+                        <canvas id="predictedPowerChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Indicador de Status MQTT no canto da tela -->
+    <div id="mqtt-status-indicator" class="rounded-full shadow-lg"></div>
+
+    <!-- Modal de Explicação -->
+    <div id="explanation-modal" class="modal-overlay">
+        <div class="modal-content">
+            <button id="close-modal" class="modal-close-button">✖️</button>
+            <h3 id="modal-title"></h3>
+            <p id="modal-description"></p>
+        </div>
+    </div>
+
+    <!-- Modal para Gráfico Expandido -->
+    <div id="chart-expansion-modal" class="modal-overlay">
+        <div id="chart-expansion-content" class="modal-content">
+            <button id="close-chart-modal" class="modal-close-button">✖️</button>
+            <h3 id="expanded-chart-title"></h3>
+            <div id="expanded-chart-container">
+                <canvas id="expanded-chart-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Gráfico Senoidal -->
+    <div id="sinusoidal-modal" class="modal-overlay">
+        <div id="sinusoidal-content" class="modal-content">
+            <button id="close-sinusoidal-modal" class="modal-close-button">✖️</button>
+            <h3 id="sinusoidal-chart-title">Onda Senoidal de Tensão</h3>
+            <div id="sinusoidal-chart-container">
+                <canvas id="sinusoidal-chart-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Message for Save Feedback -->
+    <div id="toast-message" class="toast-message">
+        Setpoints salvos com sucesso!
+    </div>
+
+    <script>
+        // --- Elementos do Dashboard Principal ---
+        const dashboardView = document.getElementById('dashboard-view');
+        const displayVoltage = document.getElementById('display-voltage');
+        const displayCurrent = document.getElementById('display-current');
+        const displayPower = document.getElementById('display-power');
+        const displayEnergy = document.getElementById('display-energy');
+        const displayFrequency = document.getElementById('display-frequency');
+        const displayPf = document.getElementById('display-pf');
+
+        // Variáveis para armazenar os últimos valores recebidos para o gráfico senoidal
+        let latestVoltage = 0;
+        let latestFrequency = 0;
+
+        // Elementos dos displays de valor para aplicar o alerta visual
+        const displayVoltageValue = document.getElementById('display-voltage');
+        const displayCurrentValue = document.getElementById('display-current');
+        const displayPowerValue = document.getElementById('display-power');
+        const displayEnergyValue = document.getElementById('display-energy');
+        const displayFrequencyValue = document.getElementById('display-frequency');
+        const displayPfValue = document.getElementById('display-pf');
+
+        // Elementos do Modal de Explicação
+        const explanationModal = document.getElementById('explanation-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalDescription = document.getElementById('modal-description');
+        const closeModalButton = document.getElementById('close-modal');
+        // Seleciona APENAS os cards de DADOS para o clique de explicação
+        const dataCards = document.querySelectorAll('.data-card'); 
+
+        // Elemento do Indicador de Status MQTT
+        const mqttStatusIndicator = document.getElementById('mqtt-status-indicator');
+
+        // Botões das abas
+        const showDashboardBtn = document.getElementById('showDashboardBtn');
+        const showSetpointsBtn = document.getElementById('showSetpointsBtn');
+        const showPredictiveAnalysisBtn = document.getElementById('showPredictiveAnalysisBtn'); // Novo botão
+
+        // --- Elementos da Página de Setpoints ---
+        const setpointsView = document.getElementById('setpoints-view');
+        const voltageRange = document.getElementById('voltageRange');
+        const voltageSetpointInput = document.getElementById('voltageSetpoint');
+        const currentRange = document.getElementById('currentRange');
+        const currentSetpointInput = document.getElementById('currentSetpoint');
+        const powerRange = document.getElementById('powerRange');
+        const powerSetpointInput = document.getElementById('powerSetpoint');
+        const energyRange = document.getElementById('energyRange');
+        const energySetpointInput = document.getElementById('energySetpoint');
+        const frequencyRange = document.getElementById('frequencyRange');
+        const frequencySetpointInput = document.getElementById('frequencySetpoint');
+        const pfRange = document.getElementById('pfRange');
+        const pfSetpointInput = document.getElementById('pfSetpoint');
+        const saveSetpointsButton = document.getElementById('saveSetpoints');
+
+        // Toast Message
+        const toastMessage = document.getElementById('toast-message');
+
+        // Variável para armazenar os setpoints carregados
+        let setpoints = {};
+
+        // --- Elementos do Modal de Gráfico Expandido ---
+        const chartExpansionModal = document.getElementById('chart-expansion-modal');
+        const expandedChartTitle = document.getElementById('expanded-chart-title');
+        const expandedChartCanvas = document.getElementById('expanded-chart-canvas');
+        const closeChartModalButton = document.getElementById('close-chart-modal');
+        // Seleciona os cards de GRÁFICOS para o clique de expansão
+        const chartCards = document.querySelectorAll('.chart-card');
+        let expandedChartInstance = null; // Para armazenar a instância do Chart.js expandido
+
+        // --- Elementos do Modal de Gráfico Senoidal ---
+        const metricsTitle = document.getElementById('metrics-title'); // Novo: O título "Métricas em Tempo Real"
+        const sinusoidalModal = document.getElementById('sinusoidal-modal');
+        const sinusoidalChartTitle = document.getElementById('sinusoidal-chart-title');
+        const sinusoidalChartCanvas = document.getElementById('sinusoidal-chart-canvas');
+        const closeSinusoidalModalButton = document.getElementById('close-sinusoidal-modal');
+        let sinusoidalChartInstance = null; // Para armazenar a instância do Chart.js senoidal
+        const SINUSOIDAL_CYCLES_TO_SHOW = 5; // Número de ciclos a serem exibidos na onda senoidal (aumentado para 5)
+
+        // --- Elementos da Página de Análise Preditiva ---
+        const predictiveAnalysisView = document.getElementById('predictive-analysis-view'); // Nova view
+
+        // --- Funções Auxiliares ---
+
+        /**
+         * Função para carregar setpoints do localStorage.
+         * Preenche os campos da página de setpoints e a variável global 'setpoints'.
+         */
+        function loadSetpoints() {
+            try {
+                const storedSetpoints = localStorage.getItem('iotSetpoints');
+                if (storedSetpoints) {
+                    setpoints = JSON.parse(storedSetpoints);
+                    // Preenche os campos da view de setpoints e os sliders
+                    voltageSetpointInput.value = setpoints.voltage || '';
+                    voltageRange.value = setpoints.voltage !== null && setpoints.voltage !== undefined ? setpoints.voltage : voltageRange.min;
+                    currentSetpointInput.value = setpoints.current || '';
+                    currentRange.value = setpoints.current !== null && setpoints.current !== undefined ? setpoints.current : currentRange.min;
+                    powerSetpointInput.value = setpoints.power || '';
+                    powerRange.value = setpoints.power !== null && setpoints.power !== undefined ? setpoints.power : powerRange.min;
+                    energySetpointInput.value = setpoints.energy || '';
+                    energyRange.value = setpoints.energy !== null && setpoints.energy !== undefined ? setpoints.energy : energyRange.min;
+                    frequencySetpointInput.value = setpoints.frequency || '';
+                    frequencyRange.value = setpoints.frequency !== null && setpoints.frequency !== undefined ? setpoints.frequency : frequencyRange.min;
+                    pfSetpointInput.value = setpoints.pf || '';
+                    pfRange.value = setpoints.pf !== null && setpoints.pf !== undefined ? setpoints.pf : pfRange.min;
+
+                    // Atualiza o preenchimento visual dos sliders ao carregar
+                    updateSliderTrackFill(voltageRange);
+                    updateSliderTrackFill(currentRange);
+                    updateSliderTrackFill(powerRange);
+                    updateSliderTrackFill(energyRange);
+                    updateSliderTrackFill(frequencyRange);
+                    updateSliderTrackFill(pfRange);
+
+                    console.log('Setpoints carregados:', setpoints);
+                } else {
+                    setpoints = {}; // Inicializa como vazio se não houver setpoints salvos
+                }
+            } catch (e) {
+                console.error('Erro ao carregar setpoints do localStorage:', e);
+                setpoints = {}; // Garante que setpoints seja um objeto vazio em caso de erro
+                localStorage.removeItem('iotSetpoints'); // Remove dados corrompidos
+            }
+        }
+
+        /**
+         * Função para salvar setpoints no localStorage.
+         * Coleta os valores dos campos da página de setpoints e os armazena.
+         */
+        function saveSetpoints() {
+            const newSetpoints = {
+                voltage: parseFloat(voltageSetpointInput.value) || null,
+                current: parseFloat(currentSetpointInput.value) || null,
+                power: parseFloat(powerSetpointInput.value) || null,
+                energy: parseFloat(energySetpointInput.value) || null,
+                frequency: parseFloat(frequencySetpointInput.value) || null,
+                pf: parseFloat(pfSetpointInput.value) || null
+            };
+            // Remove as propriedades nulas para não salvar "null" ou "NaN" explicitamente
+            Object.keys(newSetpoints).forEach(key => {
+                if (newSetpoints[key] === null || isNaN(newSetpoints[key])) {
+                    delete newSetpoints[key];
+                }
+            });
+
+            localStorage.setItem('iotSetpoints', JSON.stringify(newSetpoints));
+            setpoints = newSetpoints; // Atualiza a variável global de setpoints
+            showToast('Setpoints salvos com sucesso!'); // Feedback visual mais suave
+        }
+
+        /**
+         * Mostra uma mensagem toast temporária.
+         * @param {string} message - A mensagem a ser exibida.
+         * @param {number} duration - Duração em milissegundos (padrão: 3000ms).
+         */
+        function showToast(message, duration = 3000) {
+            toastMessage.textContent = message;
+            toastMessage.classList.add('show');
+            setTimeout(() => {
+                toastMessage.classList.remove('show');
+            }, duration);
+        }
+
+        /**
+         * Função para formatar o valor de uma medição.
+         * Exibe "N/A" se o valor for 0, NaN, null ou undefined. Caso contrário, formata para 1 casa decimal.
+         * @param {number} value - O valor da medição.
+         * @returns {string} O valor formatado ou "N/A".
+         */
+        function formatMeasurementValue(value) {
+            // Verifica se o valor é 0, não é um número, é nulo ou indefinido
+            if (value === 0 || isNaN(value) || value === null || value === undefined) {
+                return 'N/A';
+            }
+            return value.toFixed(1);
+        }
+
+        /**
+         * Adiciona um novo ponto de dado ao histórico.
+         * @param {object} dataObject - Objeto de dados do Chart.js (labels, datasets).
+         * @param {number} value - O novo valor a ser adicionado.
+         * @param {object} chartInstance - A instância do Chart.js a ser atualizada.
+         */
+        function addDataToChart(dataObject, value, chartInstance) {
+            const now = new Date();
+            // Formata a hora para HH:MM
+            const timeLabel = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+            // Adiciona o novo ponto de dado e o label de tempo
+            dataObject.labels.push(timeLabel);
+            dataObject.datasets[0].data.push(value);
+
+            // Mantém apenas os últimos MAX_DATA_POINTS
+            if (dataObject.labels.length > MAX_DATA_POINTS) {
+                dataObject.labels.shift();
+                dataObject.datasets[0].data.shift();
+            }
+            // Chama chart.update() imediatamente após a adição de dados para garantir a renderização
+            chartInstance.update();
+        }
+
+        let chartUpdateIntervalId = null; // Variável para armazenar o ID do intervalo de atualização
+        const CHART_UPDATE_INTERVAL = 200; // Atualiza os gráficos a cada 200ms (5 vezes por segundo)
+        const PREDICTION_FUTURE_POINTS = 5; // Número de pontos futuros a prever
+
+        /**
+         * Simula uma previsão simples de potência com base nos últimos dados históricos.
+         * Esta é uma simulação básica (extrapolação linear).
+         * @param {Array<number>} historicalData - Array de dados históricos de potência.
+         * @returns {Array<number>} Array de valores de potência previstos.
+         */
+        function simulatePrediction(historicalData) {
+            if (historicalData.length < 2) { // Precisa de pelo menos 2 pontos para uma "tendência"
+                return Array(PREDICTION_FUTURE_POINTS).fill(null);
+            }
+
+            const lastValue = historicalData[historicalData.length - 1];
+            const secondLastValue = historicalData[historicalData.length - 2];
+            const difference = lastValue - secondLastValue; // Simples delta
+
+            const predictedValues = [];
+            let nextValue = lastValue;
+            for (let i = 0; i < PREDICTION_FUTURE_POINTS; i++) {
+                // Extrapolação linear simples: adiciona a diferença do último para o penúltimo
+                nextValue += difference;
+                predictedValues.push(nextValue);
+            }
+            return predictedValues;
+        }
+
+        /**
+         * Atualiza todas as instâncias de gráficos. Chamada periodicamente para otimização.
+         * Esta função agora serve mais como um 'heartbeat' e para atualizar gráficos que não recebem dados constantemente,
+         * como o gráfico preditivo, pois os gráficos de medição já são atualizados em tempo real.
+         */
+        function updateAllCharts() {
+            // Se o modal de onda senoidal estiver ativo, atualiza também
+            if (sinusoidalChartInstance && sinusoidalModal.classList.contains('active')) {
+                updateSinusoidalChart(latestVoltage, latestFrequency);
+            }
+
+            // Atualiza o gráfico de análise preditiva
+            updatePredictedPowerChart();
+        }
+
+        /**
+         * Gera e atualiza os dados para o gráfico de onda senoidal.
+         * @param {number} voltage - O valor RMS da tensão.
+         * @param {number} frequency - O valor da frequência.
+         */
+        function updateSinusoidalChart(voltage, frequency) {
+            if (!sinusoidalChartInstance) return; // Se a instância não existe, não faz nada
+
+            if (isNaN(voltage) || isNaN(frequency) || voltage === 0 || frequency === 0) {
+                sinusoidalChartTitle.textContent = "Dados de tensão ou frequência insuficientes para gerar a onda senoidal.";
+                sinusoidalChartInstance.data.labels = [];
+                sinusoidalChartInstance.data.datasets[0].data = [];
+            } else {
+                const amplitude = voltage * Math.sqrt(2); // Vpeak = Vrms * sqrt(2)
+                const totalPlotPoints = 360 * SINUSOIDAL_CYCLES_TO_SHOW; // 360 pontos por ciclo * número de ciclos
+                const labels = [];
+                const data = [];
+
+                for (let i = 0; i <= totalPlotPoints; i++) {
+                    // Calcula o ângulo para o número total de ciclos
+                    const angle = (i / totalPlotPoints) * (2 * Math.PI * SINUSOIDAL_CYCLES_TO_SHOW);
+                    labels.push((angle * (180 / Math.PI)).toFixed(0) + '°'); // Labels em graus para o eixo X
+                    data.push(amplitude * Math.sin(angle));
+                }
+                sinusoidalChartInstance.data.labels = labels;
+                sinusoidalChartInstance.data.datasets[0].data = data;
+                sinusoidalChartTitle.textContent = `Onda Senoidal de Tensão: ${voltage.toFixed(1)}V RMS @ ${frequency.toFixed(1)}Hz`;
+            }
+            sinusoidalChartInstance.update();
+        }
+
+        /**
+         * Atualiza o gráfico de potência preditiva.
+         */
+        function updatePredictedPowerChart() {
+            if (!predictedPowerChartInstance) return; // Se a instância não existe, não faz nada
+
+            const historicalPowerData = powerData.datasets[0].data;
+            const historicalPowerLabels = powerData.labels;
+
+            // Mantém os dados históricos no primeiro dataset
+            predictedPowerChartInstance.data.datasets[0].data = historicalPowerData.slice();
+            predictedPowerChartInstance.data.labels = historicalPowerLabels.slice();
+
+            // Gera a previsão e adiciona ao segundo dataset
+            const predictedValues = simulatePrediction(historicalPowerData);
+            predictedPowerChartInstance.data.datasets[1].data = Array(historicalPowerData.length - 1).fill(null).concat([historicalPowerData[historicalPowerData.length-1]]).concat(predictedValues); // Adiciona nulls para alinhar
+            
+            // Cria labels para o futuro
+            for (let i = 0; i < PREDICTION_FUTURE_POINTS; i++) {
+                const lastTime = new Date(`2000-01-01T${historicalPowerLabels[historicalPowerLabels.length - 1]}:00`); // Usar uma data arbitrária para cálculo
+                lastTime.setMinutes(lastTime.getMinutes() + (i + 1)); // Adiciona 1 minuto por ponto futuro
+                const futureTimeLabel = `${String(lastTime.getHours()).padStart(2, '0')}:${String(lastTime.getMinutes()).padStart(2, '0')}`;
+                predictedPowerChartInstance.data.labels.push(futureTimeLabel);
+            }
+            
+            predictedPowerChartInstance.update();
+        }
+
+
+        /**
+         * Atualiza o indicador de status MQTT.
+         * @param {string} status - O status da conexão ('connected', 'disconnected', 'reconnecting', 'error').
+         */
+        function updateMqttStatusIndicator(status) {
+            mqttStatusIndicator.classList.remove('connected', 'disconnected', 'reconnecting', 'error');
+            mqttStatusIndicator.classList.add(status);
+        }
+
+        /**
+         * Aplica ou remove a classe de alerta de piscar no elemento de valor.
+         * @param {HTMLElement} valueElement - O elemento span que exibe o valor da medição.
+         * @param {number} currentValue - O valor atual da medição.
+         * @param {number} setpointValue - O valor do setpoint.
+         */
+        function applyValueAlert(valueElement, currentValue, setpointValue) {
+            // Verifica se o setpoint é um número válido e se o valor atual excede o setpoint
+            if (typeof setpointValue === 'number' && !isNaN(setpointValue) && currentValue > setpointValue) {
+                valueElement.classList.add('value-flash-red-alert');
+            } else {
+                valueElement.classList.remove('value-flash-red-alert');
+            }
+        }
+
+        // --- Configuração dos Gráficos Chart.js ---
+        const MAX_DATA_POINTS = 60; // Limite de pontos de dados para exibir no gráfico (aprox. 1 minuto de dados se a cada 1 segundo)
+
+        const voltageData = { labels: [], datasets: [{ label: 'Tensão', data: [], borderColor: '#3b82f6', tension: 0.4, fill: false }] };
+        const currentData = { labels: [], datasets: [{ label: 'Corrente', data: [], borderColor: '#10b981', tension: 0.4, fill: false }] };
+        const powerData = { labels: [], datasets: [{ label: 'Potência', data: [], borderColor: '#f59e0b', tension: 0.4, fill: false }] };
+        const energyData = { labels: [], datasets: [{ label: 'Energia', data: [], borderColor: '#ef4444', tension: 0.4, fill: false }] };
+        const frequencyData = { labels: [], datasets: [{ label: 'Frequência', data: [], borderColor: '#8b5cf6', tension: 0.4, fill: false }] };
+        const pfData = { labels: [], datasets: [{ label: 'Fator de Potência', data: [], borderColor: '#06b6d4', tension: 0.4, fill: false }] };
+
+        // Dados e instância para o gráfico de Potência Preditiva
+        const predictedPowerData = {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Potência Histórica',
+                    data: [],
+                    borderColor: '#f59e0b', // Cor da linha de potência histórica
+                    tension: 0.4,
+                    fill: false,
+                    pointRadius: 2,
+                    borderWidth: 2
+                },
+                {
+                    label: 'Potência Prevista',
+                    data: [],
+                    borderColor: '#4CAF50', // Cor da linha de previsão (verde)
+                    borderDash: [5, 5], // Linha tracejada para previsão
+                    tension: 0.4,
+                    fill: false,
+                    pointRadius: 0, // Sem pontos para a previsão
+                    borderWidth: 2
+                }
+            ]
+        };
+
+        // Opções padrão para todos os gráficos
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: false, // Importante para permitir que o gráfico se ajuste ao tamanho do modal
+            animation: {
+                duration: 500 // Animação de atualização mais suave
+            },
+            plugins: {
+                legend: {
+                    display: false // Não exibe a legenda do dataset para os cards individuais
+                },
+                tooltip: {
+                    enabled: true,
+                    mode: 'index',
+                    intersect: false,
+                    position: 'nearest',
+                    callbacks: {
+                        label: function(context) {
+                            // Todas as medições com 1 casa decimal
+                            return `${context.dataset.label}: ${context.parsed.y.toFixed(1)}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: {
+                        display: false // Esconde as linhas de grade do eixo X
+                    },
+                    ticks: {
+                        autoSkip: true,
+                        maxTicksLimit: 10, // Limita o número de labels no eixo X
+                        callback: function(value, index, values) {
+                            // Exibe apenas HH:MM
+                            return this.getLabelForValue(value).substring(0, 5); // Pega apenas HH:MM
+                        }
+                    }
+                },
+                y: {
+                    beginAtZero: false, // Pode ajustar conforme a necessidade do sensor
+                    grid: {
+                        color: '#e2e8f0' // Cor suave para as linhas de grade do eixo Y
+                    },
+                    // Garante que o eixo Y também mostre 1 casa decimal no tick, se aplicável
+                    ticks: {
+                        callback: function(value) {
+                            return value.toFixed(1);
+                        }
+                    }
+                }
+            }
+        };
+
+        // Instâncias dos gráficos originais nos cards
+        const charts = {
+            voltageChart: new Chart(document.getElementById('voltageChart').getContext('2d'), {
+                type: 'line', data: voltageData, options: { ...chartOptions, scales: { ...chartOptions.scales, y: { ...chartOptions.scales.y, title: { display: true, text: 'V' } } } }
+            }),
+            currentChart: new Chart(document.getElementById('currentChart').getContext('2d'), {
+                type: 'line', data: currentData, options: { ...chartOptions, scales: { ...chartOptions.scales, y: { ...chartOptions.scales.y, title: { display: true, text: 'A' } } } }
+            }),
+            powerChart: new Chart(document.getElementById('powerChart').getContext('2d'), {
+                type: 'line', data: powerData, options: { ...chartOptions, scales: { ...chartOptions.scales, y: { ...chartOptions.scales.y, title: { display: true, text: 'W' } } } }
+            }),
+            energyChart: new Chart(document.getElementById('energyChart').getContext('2d'), {
+                type: 'line', data: energyData, options: { ...chartOptions, scales: { ...chartOptions.scales, y: { ...chartOptions.scales.y, title: { display: true, text: 'kWh' } } } }
+            }),
+            frequencyChart: new Chart(document.getElementById('frequencyChart').getContext('2d'), {
+                type: 'line', data: frequencyData, options: { ...chartOptions, scales: { ...chartOptions.scales, y: { ...chartOptions.scales.y, title: { display: true, text: 'Hz' } } } }
+            }),
+            pfChart: new Chart(document.getElementById('pfChart').getContext('2d'), {
+                type: 'line', data: pfData, options: { ...chartOptions, scales: { ...chartOptions.scales, y: { ...chartOptions.scales.y, title: { display: true, text: 'Fator de Potência' } } } }
+            })
+        };
+
+        // Instância do gráfico de potência preditiva
+        const predictedPowerChartInstance = new Chart(document.getElementById('predictedPowerChart').getContext('2d'), {
+            type: 'line',
+            data: predictedPowerData,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 500
+                },
+                plugins: {
+                    legend: {
+                        display: true, // Exibe a legenda para o gráfico preditivo
+                        position: 'top'
+                    },
+                    tooltip: {
+                        enabled: true,
+                        mode: 'index',
+                        intersect: false,
+                        position: 'nearest',
+                        callbacks: {
+                            label: function(context) {
+                                if (context.parsed.y === null) return ''; // Não mostra tooltip para nulls
+                                return `${context.dataset.label}: ${context.parsed.y.toFixed(1)} W`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            autoSkip: true,
+                            maxTicksLimit: 10,
+                            callback: function(value, index, values) {
+                                return this.getLabelForValue(value).substring(0, 5);
+                            }
+                        }
+                    },
+                    y: {
+                        beginAtZero: false,
+                        grid: {
+                            color: '#e2e8f0'
+                        },
+                        ticks: {
+                            callback: function(value) {
+                                return value.toFixed(1);
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Potência (W)'
+                        }
+                    }
+                }
+            }
+        });
+
+
+        // --- Configuração do Broker MQTT ---
+        const broker = 'broker.hivemq.com';
+        const port = 8884; // Porta para conexão segura WebSocket (WSS)
+        const connectUrl = `wss://${broker}:${port}/mqtt`;
+        // Gera um ID de cliente único para a conexão MQTT
+        const clientId = 'dashboard_' + Math.random().toString(16).substr(2, 8);
+
+        // Tópicos MQTT para os quais o dashboard irá se inscrever
+        const topicsToSubscribe = [
+            "esp32/power/voltage",
+            "esp32/power/current",
+            "esp32/power/power",
+            "esp32/power/energy",
+            "esp32/power/frequency",
+            "esp32/power/pf",
+            "esp32/power/all" // Tópico principal para receber todos os dados em um único JSON
+        ];
+
+        // Inicializa a conexão MQTT
+        const client = mqtt.connect(connectUrl, {
+            clientId: clientId,
+            clean: true, // Limpa sessões anteriores
+            reconnectPeriod: 5000, // Tenta reconectar a cada 5 segundos
+            connectTimeout: 30 * 1000 // Tempo limite para conexão de 30 segundos
+        });
+
+        // --- Eventos da Conexão MQTT ---
+
+        // Evento 'connect': Disparado quando o cliente se conecta ao broker
+        client.on('connect', () => {
+            console.log('Conectado ao broker MQTT.'); // Log para depuração
+            updateMqttStatusIndicator('connected'); // Atualiza o indicador para verde pulsante
+            
+            // Inscreve nos tópicos definidos
+            topicsToSubscribe.forEach(topic => {
+                client.subscribe(topic, { qos: 0 }, (err) => {
+                    if (err) {
+                        console.error(`Erro ao subscrever no tópico ${topic}:`, err);
+                        updateMqttStatusIndicator('error'); // Erro na subscrição pode indicar problema
+                    }
+                });
+            });
+        });
+
+        // Evento 'message': Disparado quando uma mensagem é recebida de um tópico inscrito
+        client.on('message', (topic, message) => {
+            const msgString = message.toString();
+            // Adicionado console.log para exibir as informações que estão chegando
+            console.log(`Mensagem recebida no tópico "${topic}": ${msgString}`);
+
+            let value;
+            try {
+                // Tenta fazer o parse como JSON se o tópico for 'esp32/power/all'
+                if (topic === "esp32/power/all") {
+                    try {
+                        const data = JSON.parse(msgString);
+                        // Atualiza os displays e adiciona dados aos históricos dos gráficos
+                        displayVoltage.textContent = formatMeasurementValue(data.voltage);
+                        displayCurrent.textContent = formatMeasurementValue(data.current);
+                        displayPower.textContent = formatMeasurementValue(data.power);
+                        displayEnergy.textContent = formatMeasurementValue(data.energy);
+                        displayFrequency.textContent = formatMeasurementValue(data.frequency);
+                        displayPf.textContent = formatMeasurementValue(data.pf);
+
+                        // Atualiza as últimas medições para o gráfico senoidal
+                        if (!isNaN(data.voltage)) latestVoltage = data.voltage;
+                        if (!isNaN(data.frequency)) latestFrequency = data.frequency;
+
+                        if (!isNaN(data.voltage) && data.voltage !== null && data.voltage !== undefined) {
+                            addDataToChart(voltageData, data.voltage, charts.voltageChart);
+                            applyValueAlert(displayVoltageValue, data.voltage, setpoints.voltage);
+                        }
+                        if (!isNaN(data.current) && data.current !== null && data.current !== undefined) {
+                            addDataToChart(currentData, data.current, charts.currentChart);
+                            applyValueAlert(displayCurrentValue, data.current, setpoints.current);
+                        }
+                        if (!isNaN(data.power) && data.power !== null && data.power !== undefined) {
+                            addDataToChart(powerData, data.power, charts.powerChart);
+                            applyValueAlert(displayPowerValue, data.power, setpoints.power);
+                        }
+                        if (!isNaN(data.energy) && data.energy !== null && data.energy !== undefined) {
+                            addDataToChart(energyData, data.energy, charts.energyChart);
+                            applyValueAlert(displayEnergyValue, data.energy, setpoints.energy);
+                        }
+                        if (!isNaN(data.frequency) && data.frequency !== null && data.frequency !== undefined) {
+                            addDataToChart(frequencyData, data.frequency, charts.frequencyChart);
+                            applyValueAlert(displayFrequencyValue, data.frequency, setpoints.frequency);
+                        }
+                        if (!isNaN(data.pf) && data.pf !== null && data.pf !== undefined) {
+                            addDataToChart(pfData, data.pf, charts.pfChart);
+                            applyValueAlert(displayPfValue, data.pf, setpoints.pf);
+                        }
+                    } catch (e) {
+                        // Mensagem do tópico 'esp32/power/all' não é JSON válido ou está vazia.
+                        // Como per o pedido do usuário, isso é normal para o modo de teste,
+                        // então apenas exibe um aviso em vez de um erro.
+                        console.warn("Mensagem do tópico 'esp32/power/all' não é JSON válido ou está vazia (comum em modo de teste):", msgString);
+                        // Os displays manterão o valor anterior ou "N/A" se nenhum dado válido de tópicos individuais estiver chegando.
+                    }
+                } else {
+                    // Para tópicos individuais, converte o payload diretamente para float
+                    value = parseFloat(msgString);
+                    switch (topic) {
+                        case "esp32/power/voltage":
+                            displayVoltage.textContent = formatMeasurementValue(value);
+                            if (!isNaN(value) && value !== null && value !== undefined) {
+                                addDataToChart(voltageData, value, charts.voltageChart);
+                                applyValueAlert(displayVoltageValue, value, setpoints.voltage);
+                                latestVoltage = value; // Atualiza a última tensão
+                            }
+                            break;
+                        case "esp32/power/current":
+                            displayCurrent.textContent = formatMeasurementValue(value);
+                            if (!isNaN(value) && value !== null && value !== undefined) {
+                                addDataToChart(currentData, value, charts.currentChart);
+                                applyValueAlert(displayCurrentValue, value, setpoints.current);
+                            }
+                            break;
+                        case "esp32/power/power":
+                            displayPower.textContent = formatMeasurementValue(value);
+                            if (!isNaN(value) && value !== null && value !== undefined) {
+                                addDataToChart(powerData, value, charts.powerChart);
+                                applyValueAlert(displayPowerValue, value, setpoints.power);
+                            }
+                            break;
+                        case "esp32/power/energy":
+                            displayEnergy.textContent = formatMeasurementValue(value);
+                            if (!isNaN(value) && value !== null && value !== undefined) {
+                                addDataToChart(energyData, value, charts.energyChart);
+                                applyValueAlert(displayEnergyValue, value, setpoints.energy);
+                            }
+                            break;
+                        case "esp32/power/frequency":
+                            displayFrequency.textContent = formatMeasurementValue(value);
+                            if (!isNaN(value) && value !== null && value !== undefined) {
+                                addDataToChart(frequencyData, value, charts.frequencyChart);
+                                applyValueAlert(displayFrequencyValue, value, setpoints.frequency);
+                                latestFrequency = value; // Atualiza a última frequência
+                            }
+                            break;
+                        case "esp32/power/pf":
+                            displayPf.textContent = formatMeasurementValue(value);
+                            if (!isNaN(value) && value !== null && value !== undefined) {
+                                addDataToChart(pfData, value, charts.pfChart);
+                                applyValueAlert(displayPfValue, value, setpoints.pf);
+                            }
+                            break;
+                        default:
+                            console.warn(`Tópico MQTT desconhecido: ${topic}`);
+                    }
+                }
+            } catch (e) {
+                // Este catch é para erros inesperados fora do parse do JSON do tópico 'esp32/power/all'
+                console.error(`Erro ao processar mensagem do tópico "${topic}":`, e);
+                // Em caso de erro, define todos os valores como N/A
+                displayVoltage.textContent = 'N/A';
+                displayCurrent.textContent = 'N/A';
+                displayPower.textContent = 'N/A';
+                displayEnergy.textContent = 'N/A';
+                displayFrequency.textContent = 'N/A';
+                displayPf.textContent = 'N/A';
+                updateMqttStatusIndicator('error'); // Define o indicador para erro
+            }
+        });
+
+        // Evento 'reconnect': Disparado quando o cliente tenta reconectar
+        client.on('reconnect', () => {
+            console.log('Reconectando ao broker...'); // Log para depuração
+            updateMqttStatusIndicator('reconnecting'); // Atualiza o indicador para amarelo
+        });
+
+        // Evento 'error': Disparado em caso de erro na conexão MQTT
+        client.on('error', (err) => {
+            console.error('Erro MQTT:', err);
+            updateMqttStatusIndicator('error'); // Atualiza o indicador para vermelho escuro
+        });
+
+        // Evento 'close': Disparado quando a conexão MQTT é fechada
+        client.on('close', () => {
+            console.log('Desconectado do broker.'); // Log para depuração
+            updateMqttStatusIndicator('disconnected'); // Atualiza o indicador para vermelho
+            // Limpar os valores dos displays e gráficos ao desconectar
+            displayVoltage.textContent = 'N/A';
+            displayCurrent.textContent = 'N/A';
+            displayPower.textContent = 'N/A';
+            displayEnergy.textContent = 'N/A';
+            displayFrequency.textContent = 'N/A';
+            displayPf.textContent = 'N/A';
+
+            // Limpa os dados dos gráficos
+            [voltageData, currentData, powerData, energyData, frequencyData, pfData].forEach(d => {
+                d.labels = [];
+                d.datasets[0].data = [];
+            });
+            // Limpa os dados do gráfico preditivo
+            predictedPowerData.labels = [];
+            predictedPowerData.datasets[0].data = [];
+            predictedPowerData.datasets[1].data = [];
+
+            // Atualiza todas as instâncias de gráficos para refletir a limpeza
+            Object.values(charts).forEach(chart => chart.update());
+            if (predictedPowerChartInstance) predictedPowerChartInstance.update();
+        });
+
+        // --- Lógica do Modal de Explicação ---
+        
+        // Adiciona um listener de clique a cada card de DADOS para abrir o modal
+        dataCards.forEach(card => {
+            card.addEventListener('click', () => {
+                const title = card.dataset.title;
+                const description = card.dataset.description;
+
+                modalTitle.textContent = title;
+                modalDescription.textContent = description;
+                explanationModal.classList.add('active'); // Ativa a exibição do modal
+            });
+        });
+
+        // Adiciona listener de clique ao botão de fechar do modal
+        closeModalButton.addEventListener('click', () => {
+            explanationModal.classList.remove('active'); // Desativa a exibição do modal
+        });
+
+        // Adiciona listener de clique no overlay do modal para fechar ao clicar fora
+        explanationModal.addEventListener('click', (event) => {
+            if (event.target === explanationModal) { // Verifica se o clique foi no overlay e não no conteúdo
+                explanationModal.classList.remove('active');
+            }
+        });
+
+        // --- Lógica do Modal de Gráfico Expandido ---
+
+        chartCards.forEach(card => {
+            card.addEventListener('click', () => {
+                const chartId = card.dataset.chartId;
+                const chartTitle = card.dataset.title;
+                const originalChart = charts[chartId];
+
+                if (originalChart) {
+                    // Destruir a instância anterior do gráfico expandido se existir
+                    if (expandedChartInstance) {
+                        expandedChartInstance.destroy();
+                        expandedChartInstance = null;
+                    }
+
+                    expandedChartTitle.textContent = chartTitle;
+                    
+                    // Clonar os dados do gráfico original para a nova instância
+                    const clonedData = JSON.parse(JSON.stringify(originalChart.data));
+                    
+                    // Clonar as opções do gráfico original (com maintainAspectRatio: false)
+                    const clonedOptions = JSON.parse(JSON.stringify(originalChart.options));
+                    clonedOptions.maintainAspectRatio = false; // Garante que o gráfico preencha o modal
+                    clonedOptions.plugins.legend = { display: true, position: 'top' }; // Mostra a legenda no modal expandido
+
+                    expandedChartInstance = new Chart(expandedChartCanvas.getContext('2d'), {
+                        type: 'line',
+                        data: clonedData,
+                        options: clonedOptions
+                    });
+
+                    chartExpansionModal.classList.add('active');
+                }
+            });
+        });
+
+        // Fecha o modal do gráfico
+        closeChartModalButton.addEventListener('click', () => {
+            chartExpansionModal.classList.remove('active');
+            if (expandedChartInstance) {
+                expandedChartInstance.destroy(); // Destruir a instância do gráfico ao fechar o modal
+                expandedChartInstance = null;
+            }
+        });
+
+        // Fecha o modal do gráfico clicando fora dele
+        chartExpansionModal.addEventListener('click', (event) => {
+            if (event.target === chartExpansionModal) {
+                chartExpansionModal.classList.remove('active');
+                if (expandedChartInstance) {
+                    expandedChartInstance.destroy();
+                    expandedChartInstance = null;
+                }
+            }
+        });
+
+        // --- Lógica do Modal de Gráfico Senoidal ---
+        metricsTitle.addEventListener('click', () => {
+            if (sinusoidalChartInstance) {
+                sinusoidalChartInstance.destroy();
+                sinusoidalChartInstance = null;
+            }
+            
+            // Cria a instância inicial do gráfico senoidal
+            sinusoidalChartInstance = new Chart(sinusoidalChartCanvas.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: [], // Serão preenchidos por updateSinusoidalChart
+                    datasets: [{
+                        label: 'Tensão Instantânea',
+                        data: [], // Serão preenchidos por updateSinusoidalChart
+                        borderColor: '#4CAF50', // Verde para a onda senoidal
+                        tension: 0.1, // Curva suave
+                        fill: false,
+                        pointRadius: 0 // Sem pontos para uma onda contínua
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 0 // Sem animação para forma de onda instantânea
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            enabled: true,
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return `Tensão: ${context.parsed.y.toFixed(2)} V`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Ângulo (°)'
+                            },
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                autoSkip: true,
+                                maxTicksLimit: 10
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Tensão (V)'
+                            },
+                            beginAtZero: false,
+                            grid: {
+                                color: '#e2e8f0'
+                            },
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toFixed(1);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Atualiza o gráfico senoidal com os últimos dados disponíveis no momento da abertura
+            updateSinusoidalChart(latestVoltage, latestFrequency);
+            sinusoidalModal.classList.add('active');
+        });
+
+        closeSinusoidalModalButton.addEventListener('click', () => {
+            sinusoidalModal.classList.remove('active');
+            if (sinusoidalChartInstance) {
+                sinusoidalChartInstance.destroy();
+                sinusoidalChartInstance = null;
+            }
+        });
+
+        sinusoidalModal.addEventListener('click', (event) => {
+            if (event.target === sinusoidalModal) {
+                sinusoidalModal.classList.remove('active');
+                if (sinusoidalChartInstance) {
+                    sinusoidalChartInstance.destroy();
+                    sinusoidalChartInstance = null;
+                }
+            }
+        });
+
+        // --- Lógica de Navegação entre Views (Abas) ---
+
+        // Função para mostrar a view do Dashboard e esconder as outras
+        function showDashboardView() {
+            dashboardView.classList.remove('hidden');
+            setpointsView.classList.add('hidden');
+            predictiveAnalysisView.classList.add('hidden'); // Esconde a nova view
+            showDashboardBtn.classList.add('active');
+            showSetpointsBtn.classList.remove('active');
+            showPredictiveAnalysisBtn.classList.remove('active'); // Desativa o botão da nova view
+            // Inicia a atualização dos gráficos quando o dashboard está ativo
+            if (!chartUpdateIntervalId) {
+                chartUpdateIntervalId = setInterval(updateAllCharts, CHART_UPDATE_INTERVAL);
+            }
+            // Força uma atualização imediata dos gráficos do dashboard ao retornar para a view
+            // Adicionado um pequeno atraso para garantir que o DOM seja renderizado antes de forçar o resize do Chart.js
+            setTimeout(() => {
+                Object.values(charts).forEach(chart => chart.update('resize')); // Força resize para todos os gráficos do dashboard
+                predictedPowerChartInstance.update('resize'); // Atualiza também o gráfico preditivo
+            }, 50); // Atraso de 50ms
+        }
+
+        // Função para mostrar a view de Setpoints e esconder as outras
+        function showSetpointsView() {
+            dashboardView.classList.add('hidden');
+            setpointsView.classList.remove('hidden');
+            predictiveAnalysisView.classList.add('hidden'); // Esconde a nova view
+            showSetpointsBtn.classList.add('active');
+            showDashboardBtn.classList.remove('active');
+            showPredictiveAnalysisBtn.classList.remove('active'); // Desativa o botão da nova view
+            loadSetpoints(); // Garante que os valores atuais sejam carregados ao abrir a tela de setpoints
+            // Para a atualização dos gráficos quando os setpoints estão ativos
+            if (chartUpdateIntervalId) {
+                clearInterval(chartUpdateIntervalId);
+                chartUpdateIntervalId = null;
+            }
+        }
+
+        // Nova função para mostrar a view de Análise Preditiva e esconder as outras
+        function showPredictiveAnalysisView() {
+            dashboardView.classList.add('hidden');
+            setpointsView.classList.add('hidden');
+            predictiveAnalysisView.classList.remove('hidden'); // Mostra a nova view
+            showPredictiveAnalysisBtn.classList.add('active');
+            showDashboardBtn.classList.remove('active');
+            showSetpointsBtn.classList.remove('active');
+            
+            // Força uma atualização imediata do gráfico preditivo ao entrar na view
+            setTimeout(() => {
+                predictedPowerChartInstance.update('resize');
+                updatePredictedPowerChart(); // Garante que os dados sejam atualizados imediatamente
+            }, 50); // Atraso de 50ms
+
+            // Garante que a atualização dos gráficos gerais continue, incluindo o preditivo
+            if (!chartUpdateIntervalId) {
+                chartUpdateIntervalId = setInterval(updateAllCharts, CHART_UPDATE_INTERVAL);
+            }
+        }
+
+
+        // Eventos para os botões das abas
+        showDashboardBtn.addEventListener('click', showDashboardView);
+        showSetpointsBtn.addEventListener('click', showSetpointsView);
+        showPredictiveAnalysisBtn.addEventListener('click', showPredictiveAnalysisView); // Novo evento para a aba
+
+        // Evento para o botão de salvar setpoints (na view de setpoints)
+        saveSetpointsButton.addEventListener('click', saveSetpoints);
+
+        // --- Sincronização Slider <-> Input Numérico ---
+        const updateSliderTrackFill = (rangeElement) => {
+            const min = parseFloat(rangeElement.min);
+            const max = parseFloat(rangeElement.max);
+            const value = parseFloat(rangeElement.value);
+            const progress = ((value - min) / (max - min)) * 100;
+            rangeElement.style.setProperty('--track-fill', `${progress}%`);
+        };
+
+        const setupSliderInputSync = (rangeElement, numberElement) => {
+            rangeElement.addEventListener('input', () => {
+                numberElement.value = parseFloat(rangeElement.value).toFixed(rangeElement.step.includes('.') ? 2 : 0); // Ajusta para 2 casas decimais se o step for decimal
+                updateSliderTrackFill(rangeElement);
+            });
+
+            numberElement.addEventListener('input', () => {
+                let val = parseFloat(numberElement.value);
+                // Garante que o valor está dentro dos limites do slider
+                const min = parseFloat(rangeElement.min);
+                const max = parseFloat(rangeElement.max);
+                if (isNaN(val)) val = min; // Se não for número, define para o mínimo
+                if (val < min) val = min;
+                if (val > max) val = val; // Corrigido para não limitar o max se digitar maior. Se digitar mais que o máximo, ele vai manter o valor digitado.
+                
+                rangeElement.value = val;
+                updateSliderTrackFill(rangeElement);
+            });
+            // Inicializa o preenchimento do slider ao configurar
+            updateSliderTrackFill(rangeElement);
+        };
+
+        // Aplica a sincronização para cada par slider-input
+        setupSliderInputSync(voltageRange, voltageSetpointInput);
+        setupSliderInputSync(currentRange, currentSetpointInput);
+        setupSliderInputSync(powerRange, powerSetpointInput);
+        setupSliderInputSync(energyRange, energySetpointInput);
+        setupSliderInputSync(frequencyRange, frequencySetpointInput);
+        setupSliderInputSync(pfRange, pfSetpointInput);
+
+
+        // Carrega os setpoints e exibe o dashboard principal quando a página é carregada
+        document.addEventListener('DOMContentLoaded', () => {
+            loadSetpoints(); // Carrega os setpoints iniciais
+            showDashboardView(); // Inicia com a view do dashboard
+        });
+    </script>
+</body>
+</html>
